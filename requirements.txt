@@ -1,0 +1,8 @@
+elasticsearch>=8.0,<9.0
+sentence-transformers
+openai
+openpyxl
+python-docx
+pdfplumber
+tiktoken
+python-dotenv
