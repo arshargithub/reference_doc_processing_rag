@@ -18,7 +18,9 @@ def parse_eml(path: Path) -> list[Element]:
     for field_name in header_fields:
         value = msg.get(field_name)
         if value:
-            elements.append(KVPairElement(key=field_name, value=str(value)))
+            elements.append(
+                KVPairElement(key=field_name, value=str(value), is_email_header=True)
+            )
 
     body = msg.get_body(preferencelist=("plain", "html"))
     if body:

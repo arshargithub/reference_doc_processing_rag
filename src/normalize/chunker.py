@@ -49,6 +49,11 @@ def _is_boundary(prev: Element | None, curr: Element) -> bool:
     if type(prev) != type(curr):
         return True
 
+    # Boundary between email headers and non-header KV pairs
+    if isinstance(prev, KVPairElement) and isinstance(curr, KVPairElement):
+        if prev.metadata.get("is_email_header") != curr.metadata.get("is_email_header"):
+            return True
+
     # Different table or sheet
     prev_table = prev.metadata.get("table_index")
     curr_table = curr.metadata.get("table_index")
@@ -66,6 +71,8 @@ def _is_boundary(prev: Element | None, curr: Element) -> bool:
 def _determine_chunk_type(elements: list[Element]) -> str:
     types = {type(e) for e in elements}
     if types == {KVPairElement} or (KVPairElement in types and len(types) == 1):
+        if all(e.metadata.get("is_email_header") for e in elements):
+            return "email_header"
         return "kv_group"
     if TableRowElement in types:
         return "table_chunk"
@@ -82,13 +89,12 @@ def _merge_metadata(elements: list[Element]) -> dict:
             if k not in merged:
                 merged[k] = v
 
-    if len(elements) > 1:
-        first_row = elements[0].metadata.get("row_index")
-        last_row = elements[-1].metadata.get("row_index")
-        if first_row is not None and last_row is not None:
-            merged["row_index_start"] = first_row
-            merged["row_index_end"] = last_row
-            merged.pop("row_index", None)
+    first_row = elements[0].metadata.get("row_index")
+    last_row = elements[-1].metadata.get("row_index")
+    if first_row is not None and last_row is not None:
+        merged["row_index_start"] = first_row
+        merged["row_index_end"] = last_row
+    merged.pop("row_index", None)
 
     return merged
 
@@ -106,22 +112,31 @@ def chunk_elements(
     chunks: list[Chunk] = []
     buffer: list[Element] = []
     buffer_tokens: int = 0
-    section_context: str = ""
+    section_stack: list[tuple[int, str]] = []
+
+    def _section_label() -> str:
+        return " > ".join(text for _, text in section_stack)
+
+    def _push_section(level: int, text: str) -> None:
+        while section_stack and section_stack[-1][0] >= level:
+            section_stack.pop()
+        section_stack.append((level, text))
 
     def flush():
         nonlocal buffer, buffer_tokens
         if not buffer:
             return
 
+        label = _section_label()
         texts = []
-        if section_context:
-            texts.append(f"[{section_context}]")
+        if label:
+            texts.append(f"[{label}]")
         texts.extend(elem.text for elem in buffer)
         search_text = "\n".join(texts)
 
         meta = _merge_metadata(buffer)
-        if section_context:
-            meta["section_label"] = section_context
+        if label:
+            meta["section_label"] = label
 
         chunk = Chunk(
             chunk_id=str(uuid.uuid4()),
@@ -139,7 +154,7 @@ def chunk_elements(
     for elem in elements:
         if isinstance(elem, HeadingElement):
             flush()
-            section_context = elem.text
+            _push_section(elem.level, elem.text)
             buffer.append(elem)
             buffer_tokens += _estimate_tokens(elem.text)
             flush()
@@ -147,7 +162,7 @@ def chunk_elements(
 
         if isinstance(elem, TableRowElement) and elem.is_section_break:
             flush()
-            section_context = elem.cells[0].strip()
+            _push_section(2, elem.cells[0].strip())
             continue
 
         elem_tokens = _estimate_tokens(elem.text)

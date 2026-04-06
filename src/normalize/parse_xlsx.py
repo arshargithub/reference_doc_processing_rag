@@ -10,31 +10,51 @@ from .elements import Element, HeadingElement, KVPairElement, TableRowElement
 
 
 def _is_likely_kv_layout(ws, max_sample: int = 20) -> bool:
-    """Detect if a sheet uses a two-column key-value layout.
+    """Detect if a sheet uses a key-value layout.
 
-    Heuristic: exactly 2 non-empty columns, first column values are mostly
-    unique strings, second column has values.
+    Matches sheets where column A has labels and column B has values.
+    Allows extra columns (C, D, ...) as long as they are mostly empty.
     """
     col_count = ws.max_column
-    if col_count != 2:
+    if not col_count or col_count < 2:
         return False
 
+    row_count = ws.max_row or max_sample
+    sample_limit = min(row_count, max_sample)
+
     keys = []
-    for row in ws.iter_rows(min_row=1, max_row=min(ws.max_row, max_sample), values_only=True):
-        k, v = row
+    extra_col_filled = 0
+    total_rows = 0
+
+    for row in ws.iter_rows(min_row=1, max_row=sample_limit, values_only=True):
+        vals = list(row)
+        total_rows += 1
+        k = vals[0]
         if k is not None:
             keys.append(str(k).strip())
+        if col_count > 2 and any(v is not None and str(v).strip() for v in vals[2:]):
+            extra_col_filled += 1
 
     if len(keys) < 2:
         return False
+
     unique_ratio = len(set(keys)) / len(keys)
-    return unique_ratio > 0.8
+    if unique_ratio < 0.8:
+        return False
+
+    if col_count > 2 and total_rows > 0:
+        extra_fill_ratio = extra_col_filled / total_rows
+        if extra_fill_ratio > 0.3:
+            return False
+
+    return True
 
 
 def _find_header_row(ws, max_scan: int = 10) -> tuple[int, list[str]]:
     """Find the first non-empty row to use as column headers."""
+    row_count = ws.max_row or max_scan
     for row_idx, row in enumerate(
-        ws.iter_rows(min_row=1, max_row=min(ws.max_row, max_scan), values_only=True),
+        ws.iter_rows(min_row=1, max_row=min(row_count, max_scan), values_only=True),
         start=1,
     ):
         values = [str(c).strip() if c is not None else "" for c in row]
@@ -57,9 +77,16 @@ def parse_xlsx(path: Path) -> list[Element]:
 
         if _is_likely_kv_layout(ws):
             for row in ws.iter_rows(values_only=True):
-                k = str(row[0]).strip() if row[0] is not None else ""
-                v = str(row[1]).strip() if row[1] is not None else ""
-                if k:
+                vals = list(row)
+                k = str(vals[0]).strip() if vals[0] is not None else ""
+                v = str(vals[1]).strip() if len(vals) > 1 and vals[1] is not None else ""
+                if not k and not v:
+                    continue
+                if k and not v:
+                    elements.append(
+                        HeadingElement(text=k, level=2, sheet_name=sheet_name)
+                    )
+                elif k:
                     elements.append(
                         KVPairElement(key=k, value=v, sheet_name=sheet_name)
                     )

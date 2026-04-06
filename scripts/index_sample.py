@@ -6,8 +6,12 @@ Usage:
     PYTHONPATH=. python scripts/index_sample.py sample_files/sample_2 sample_2
 """
 
+import logging
 import sys
+
 from src.index.pipeline import index_directory
+
+logging.basicConfig(level=logging.INFO, format="%(name)s  %(message)s")
 
 
 def main():

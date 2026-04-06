@@ -1,5 +1,7 @@
 # Retrieval-Oriented Extraction Design Using Elasticsearch (Production-Ready)
 
+> **DEPRECATED**: This document is superseded by [`pipeline_refactor_design.md`](pipeline_refactor_design.md), which covers the full 4-service architecture, physical/logical stage mapping, and reflects the current implementation. This file is retained for historical reference only. Do not use it as a source of truth for mappings, field names, dimensions, or APIs.
+
 ## 1. Overview
 
 This document defines a **production-grade design** for a retrieval-oriented extraction system using **Elasticsearch (Elastic)** as the unified retrieval layer. The system decomposes extraction into bounded, schema-agnostic work units and uses **hybrid retrieval (BM25 + vector)** to gather evidence for each unit.

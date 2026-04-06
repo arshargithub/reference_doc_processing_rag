@@ -8,6 +8,14 @@ from src.normalize.chunker import Chunk
 
 DEFAULT_MODEL_PATH = "models/bge-large-en-v1.5"
 
+ES_METADATA_FIELDS = (
+    "section_label",
+    "sheet_name",
+    "page_number",
+    "row_index_start",
+    "row_index_end",
+)
+
 
 class Embedder:
     def __init__(self, model_path: str = DEFAULT_MODEL_PATH):
@@ -29,8 +37,7 @@ class Embedder:
                 "embedding": vector.tolist(),
                 "token_estimate": chunk.token_estimate,
             }
-            for key in ("section_label", "sheet_name", "page_number",
-                        "row_index_start", "row_index_end", "row_index"):
+            for key in ES_METADATA_FIELDS:
                 if key in chunk.metadata:
                     doc[key] = chunk.metadata[key]
             docs.append(doc)
