@@ -21,7 +21,12 @@ MAPPING = {
                 "index": True,
                 "similarity": "cosine",
             },
-            "section_label": {"type": "keyword"},
+            "section_label": {
+                "type": "keyword",
+                "fields": {
+                    "text": {"type": "text"},
+                },
+            },
             "sheet_name": {"type": "keyword"},
             "page_number": {"type": "integer"},
             "row_index_start": {"type": "integer"},
