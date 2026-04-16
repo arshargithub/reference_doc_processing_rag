@@ -566,7 +566,67 @@ For this design to work, the extraction schema must satisfy:
 
 ---
 
-## 12. Open Questions and Future Considerations
+## 12. Artifact Persistence (S3)
+
+All intermediate and final artifacts are persisted to S3 for debugging, replayability, and auditing. Artifacts are stored under `{request_id}/` and versioned by appending `_v{N}` to file names when re-runs occur (consistent with the existing convention for documents and structured output).
+
+### S3 Folder Structure
+
+```
+{request_id}/
+  documents/                        # existing -- raw .eml + attachments
+    email.eml
+    attachment1.pdf
+    attachment2_v2.xlsx             # versioned on re-upload
+
+  manifest/                         # Phase 1 output
+    manifest_v1.json               # versioned on re-extraction
+
+  execution_plan/                   # Phase 2 output
+    execution_plan_v1.json         # versioned on re-extraction
+
+  extraction_results/               # Phase 3 outputs
+    v1/                            # grouped by extraction run
+      {job_id}.json                # one file per completed job
+      _failures.json               # summary of permanently failed jobs with error details
+
+  structured_output/                # existing -- Phase 4 final output
+    structured_output_v1.json      # versioned on re-extraction
+
+  completeness_report/              # existing, enhanced -- Phase 4 metadata
+    completeness_report_v1.json    # includes: entity coverage, list counts, conflict log, failure details
+
+  llm_usage/                        # existing -- cross-phase token usage
+    llm_usage_v1.json              # versioned on re-extraction
+```
+
+### Artifacts by Phase
+
+**Phase 1 -- Document Analysis:**
+- `manifest/manifest_v{N}.json`: The complete document manifest. Enables re-running Phases 2-4 without re-running the analyzer. First artifact to inspect when debugging extraction issues.
+
+**Phase 2 -- Job Planning:**
+- `execution_plan/execution_plan_v{N}.json`: The full list of extraction jobs with all metadata. Can be regenerated deterministically from manifest + schema, but persisted for debugging and cost analysis (job counts, batch sizes, decomposition details).
+
+**Phase 3 -- Extraction Execution:**
+- `extraction_results/v{N}/{job_id}.json`: Each completed job's structured output. Enables re-running Phase 4 (merge) without re-running extraction. Critical for debugging individual extraction quality and for partial recovery if the pipeline crashes mid-extraction.
+- `extraction_results/v{N}/_failures.json`: Permanently failed jobs with error type, retry count, entity path, and last error message.
+
+**Phase 4 -- Assembly and Merge:**
+- `structured_output/structured_output_v{N}.json`: The final merged extraction output (existing).
+- `completeness_report/completeness_report_v{N}.json`: Enhanced to include conflict log (fields where multiple files disagreed, both values, which won) and failure details (which entity paths / list items failed), in addition to existing coverage and count information.
+
+**Cross-Phase:**
+- `llm_usage/llm_usage_v{N}.json`: Aggregated token usage (existing). With the refactored pipeline, this can include per-phase and per-job breakdowns for granular cost attribution.
+
+### Notes
+- Extraction results use a `v{N}/` subdirectory (rather than per-file versioning) because the set of job IDs changes between extraction runs, so file-level versioning doesn't apply. Each run produces a complete set of results in its own version folder.
+- All artifacts are retained and archived after N months per the existing retention policy.
+- The manifest and execution plan are small (single JSON files) and cheap to retain indefinitely. Extraction results are the largest artifact set but still small per-file (each is one entity or one batch of records).
+
+---
+
+## 13. Open Questions and Future Considerations
 
 - **Job coalescing optimization**: The current design creates one job per entity level, which can produce many small jobs (e.g., a nested entity with 3 string fields gets its own LLM call). A future optimization: the job planner could estimate the combined output token cost of sibling entities and coalesce small ones into a single job if they fit well under the token limit. This reduces LLM call count (cost and latency) at the expense of slightly more complex job planning and merge logic. Start without coalescing; add it if the number of LLM calls per request becomes a bottleneck.
 - **Content pre-slicing for non-tabular jobs**: Currently, entity flat and unstructured item jobs receive the full file with location hints. A future optimization: pre-extract only the relevant pages/sections and provide a smaller context to the agent. This reduces input token cost and may improve extraction accuracy by removing noise. Tabular batch jobs already pre-slice.
